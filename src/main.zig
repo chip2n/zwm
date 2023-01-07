@@ -1,8 +1,12 @@
 const std = @import("std");
 const util = @import("util.zig");
 const c = @import("c.zig");
+const input = @import("input.zig");
 
 const Event = @import("event.zig").Event;
+
+/// Modifier used for WM keybindings
+const mod_key = "mod4";
 
 var wm: WindowManager = undefined;
 
@@ -236,7 +240,12 @@ fn frame_window(w: c.Window, created_before_wm: bool) !void {
 }
 
 fn onKeyPress(e: *const c.XKeyEvent) !void {
-    std.log.info("Key pressed", .{});
+    const flags = @bitCast(input.KeyMaskFlags, e.state);
+
+    if (@field(flags, mod_key) and (e.keycode == c.XKeysymToKeycode(wm.display, c.XK_B))) {
+        std.log.info("Mod1", .{});
+    }
+
     if ((e.keycode == c.XKeysymToKeycode(wm.display, c.XK_A))) {
         std.log.info("Key pressed2", .{});
         var process = std.ChildProcess.init(&.{"xterm"}, wm.allocator);
