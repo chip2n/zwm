@@ -82,7 +82,7 @@ pub fn main() !void {
         _ = x11.XNextEvent(display, &e);
 
         var ev = Event.fromNative(e);
-        std.log.debug("Received event: {s}\n{s}", .{@tagName(ev.type), try ev.toString(allocator)});
+        std.log.debug("Received event: {s}\n{s}", .{ @tagName(ev.type), try ev.toString(allocator) });
 
         switch (e.type) {
             x11.CreateNotify => onCreateNotify(&e.xcreatewindow),
@@ -90,17 +90,23 @@ pub fn main() !void {
             x11.ConfigureNotify => onConfigureNotify(&e.xconfigure),
             x11.MapRequest => try onMapRequest(&e.xmaprequest),
             x11.MapNotify => onMapNotify(&e.xmap),
-            x11.UnmapNotify => onUnmapNotify(&e.xunmap),
-            x11.DestroyNotify => return,
+            x11.UnmapNotify => try onUnmapNotify(&e.xunmap),
+            x11.DestroyNotify => onDestroyNotify(&e.xdestroywindow),
             x11.ReparentNotify => onReparentNotify(&e.xreparent),
             x11.KeyPress => try onKeyPress(&e.xkey),
             else => {},
         }
+
+        std.log.debug("------------", .{});
     }
 }
 
 // Newly created windows are always invisible, so there's nothing for us to do.
 fn onCreateNotify(e: *const x11.XCreateWindowEvent) void {
+    _ = e;
+}
+
+fn onDestroyNotify(e: *const x11.XDestroyWindowEvent) void {
     _ = e;
 }
 
@@ -112,11 +118,20 @@ fn onMapNotify(e: *const x11.XMapEvent) void {
     _ = e;
 }
 
-fn onUnmapNotify(e: *const x11.XUnmapEvent) void {
+fn onUnmapNotify(e: *const x11.XUnmapEvent) !void {
+    // If we don't manage the window, we'll ignore this event (we receive
+    // UnmapNotify events for frame windows we've destroyed ourselves)
     const frame = wm.clients.get(e.window) orelse {
         std.log.info("Ignore UnmapNotify for non-client window {}", .{e.window});
         return;
     };
+
+    // Ignore event if it is triggered by reparenting a window that was mapped
+    // before the wm started.
+    if (e.event == wm.root) {
+        std.log.info("Ignore UnmapNotify for reparented pre-existing window {}", .{e.window});
+        return;
+    }
 
     _ = x11.XUnmapWindow(wm.display, frame);
     _ = x11.XReparentWindow(
