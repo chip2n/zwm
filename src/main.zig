@@ -84,16 +84,16 @@ pub fn main() !void {
         var ev = Event.fromNative(e);
         std.log.debug("Received event: {s}\n{s}", .{ @tagName(ev.type), try ev.toString(allocator) });
 
-        switch (e.type) {
-            c.CreateNotify => onCreateNotify(&e.xcreatewindow),
-            c.ConfigureRequest => onConfigureRequest(&e.xconfigurerequest),
-            c.ConfigureNotify => onConfigureNotify(&e.xconfigure),
-            c.MapRequest => try onMapRequest(&e.xmaprequest),
-            c.MapNotify => onMapNotify(&e.xmap),
-            c.UnmapNotify => try onUnmapNotify(&e.xunmap),
-            c.DestroyNotify => onDestroyNotify(&e.xdestroywindow),
-            c.ReparentNotify => onReparentNotify(&e.xreparent),
-            c.KeyPress => try onKeyPress(&e.xkey),
+        switch (ev.type) {
+            .create_notify => |d| onCreateNotify(&d),
+            .configure_request => |d| onConfigureRequest(&d),
+            .configure_notify => |d| onConfigureNotify(&d),
+            .map_request => |d| try onMapRequest(&d),
+            .map_notify => |d| onMapNotify(&d),
+            .unmap_notify => |d| try onUnmapNotify(&d),
+            .destroy_notify => |d| onDestroyNotify(&d),
+            .reparent_notify => |d| onReparentNotify(&d),
+            .key_press => |d| try onKeyPress(&d),
             else => {},
         }
 
