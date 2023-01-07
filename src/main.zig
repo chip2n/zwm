@@ -5,9 +5,6 @@ const input = @import("input.zig");
 
 const Event = @import("event.zig").Event;
 
-/// Modifier used for WM keybindings
-const mod_key = "mod4";
-
 var wm: WindowManager = undefined;
 
 const WindowManager = struct {
@@ -240,14 +237,7 @@ fn frame_window(w: c.Window, created_before_wm: bool) !void {
 }
 
 fn onKeyPress(e: *const c.XKeyEvent) !void {
-    const flags = @bitCast(input.KeyMaskFlags, e.state);
-
-    if (@field(flags, mod_key) and (e.keycode == c.XKeysymToKeycode(wm.display, c.XK_B))) {
-        std.log.info("Mod1", .{});
-    }
-
-    if ((e.keycode == c.XKeysymToKeycode(wm.display, c.XK_A))) {
-        std.log.info("Key pressed2", .{});
+    if (input.pressed(wm.display, e, "M-RET")) {
         var process = std.ChildProcess.init(&.{"xterm"}, wm.allocator);
         try process.spawn();
     }
@@ -266,4 +256,8 @@ fn onXError(display: ?*c.Display, e: [*c]c.XErrorEvent) callconv(.C) c_int {
     _ = c.XGetErrorText(wm.display, e.*.error_code, &text, text.len);
     std.log.err("X11 error: {s}", .{std.mem.sliceTo(&text, 0)});
     return 0;
+}
+
+test {
+    _ = @import("input.zig");
 }
