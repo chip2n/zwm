@@ -80,7 +80,7 @@ pub const Event = struct {
     send_event: bool,
     display: ?*c.Display,
     window: c.Window,
-    type: Data,
+    data: Data,
 
     pub fn fromNative(ev: c.XEvent) Event {
         return Event{
@@ -88,7 +88,7 @@ pub const Event = struct {
             .send_event = ev.xany.send_event != 0,
             .display = ev.xany.display,
             .window = ev.xany.window,
-            .type = switch (@intToEnum(Type, ev.type)) {
+            .data = switch (@intToEnum(Type, ev.type)) {
                 .key_press => Data{ .key_press = ev.xkey },
                 .key_release => Data{ .key_release = ev.xkey },
                 .button_press => Data{ .button_press = ev.xbutton },
