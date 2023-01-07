@@ -1,0 +1,22 @@
+* zwm
+
+X11 window manager built in Zig.
+
+** Developing
+
+Run window manager with ~Xephyr~:
+
+#+begin_src bash
+# Launch a Xephyr window with DISPLAY set to :1
+Xephyr -br -ac -noreset -screen 800x600 :1
+
+# Launch wm on the new display
+DISPLAY=:1 zig-out/bin/zwm
+#+end_src
+
+** Tasks
+
+*** TODO Consider becoming non-reparenting
+
+May make things much simpler, and we probably don't need any window decorations
+anyways
