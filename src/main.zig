@@ -152,14 +152,15 @@ fn onUnmapNotify(e: *const c.XUnmapEvent) !void {
 // Since window is still invisible at this point, we grant configure requests
 // without modification
 fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
-    var changes = std.mem.zeroes(c.XWindowChanges);
-    changes.x = e.x;
-    changes.y = e.y;
-    changes.width = e.width;
-    changes.height = e.height;
-    changes.border_width = e.border_width;
-    changes.sibling = e.above;
-    changes.stack_mode = e.detail;
+    var changes = c.XWindowChanges{
+        .x = e.x,
+        .y = e.y,
+        .width = e.width,
+        .height = e.height,
+        .border_width = e.border_width,
+        .sibling = e.above,
+        .stack_mode = e.detail,
+    };
 
     // Resize corresponding frame in the same way
     if (wm.clients.get(e.window)) |frame| {
