@@ -145,6 +145,7 @@ pub fn main() !void {
                 while (i < wm.windows.items.len) : (i += 1) {
                     if (wm.windows.items[i] == d.window) {
                         _ = wm.windows.orderedRemove(i);
+                        updateWindowTiles();
                         break;
                     }
                 }
@@ -165,6 +166,22 @@ pub fn main() !void {
     }
 }
 
+fn updateWindowTiles() void {
+    const root_geo = util.getGeometry(wm.display, wm.root);
+    const tiles = wm.layout_state.tile(wm.allocator, root_geo.width, root_geo.height, wm.windows.items.len) catch unreachable;
+    for (tiles) |t, i| {
+        const win = wm.windows.items[i];
+        _ = c.XMoveResizeWindow(
+            wm.display,
+            win,
+            @intCast(c_int, t.x),
+            @intCast(c_int, t.y),
+            @intCast(c_uint, t.w),
+            @intCast(c_uint, t.h),
+        );
+    }
+}
+
 // Since window is still invisible at this point, we grant configure requests
 // without modification
 fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
@@ -179,38 +196,7 @@ fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
     };
     _ = c.XConfigureWindow(wm.display, e.window, @intCast(c_uint, e.value_mask), &changes);
 
-    const root_geo = util.getGeometry(wm.display, wm.root);
-    // TODO We only add windows to WM when mapping them, so we don't have the latest window here
-    std.log.info("Configuring window {} ({} windows exist)", .{e.window, wm.windows.items.len});
-    const tiles = wm.layout_state.tile(wm.allocator, root_geo.width, root_geo.height, wm.windows.items.len) catch unreachable;
-    // TODO handle all windows, not just the first one
-    for (tiles) |t, i| {
-        const win = wm.windows.items[i];
-        _ = c.XMoveResizeWindow(
-            wm.display,
-            win,
-            @intCast(c_int, t.x),
-            @intCast(c_int, t.y),
-            @intCast(c_uint, t.w),
-            @intCast(c_uint, t.h),
-        );
-    }
-
-    // var changes = c.XWindowChanges{
-    //     .x = e.x,
-    //     .y = e.y,
-    //     .width = e.width,
-    //     .height = e.height,
-    //     .border_width = e.border_width,
-    //     .sibling = e.above,
-    //     .stack_mode = e.detail,
-    // };
-    // std.log.info("Configure event: {}x{}:{}x{}", .{ e.x, e.y, e.width, e.height });
-
-    // _ = c.XConfigureWindow(wm.display, e.window, @intCast(c_uint, e.value_mask), &changes);
-    // std.log.info("Resize {} to ({}x{})", .{ e.window, e.width, e.height });
-
-    // _ = c.XMoveResizeWindow(wm.display, e.window, 0, 0, 700, 500);
+    updateWindowTiles();
 }
 
 fn onMapRequest(e: *const c.XMapRequestEvent) !void {
