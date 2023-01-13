@@ -181,13 +181,14 @@ fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
 
     const root_geo = util.getGeometry(wm.display, wm.root);
     // TODO We only add windows to WM when mapping them, so we don't have the latest window here
-    const tiles = wm.layout_state.tile(wm.allocator, root_geo.width, root_geo.height, 1) catch unreachable;
+    std.log.info("Configuring window {} ({} windows exist)", .{e.window, wm.windows.items.len});
+    const tiles = wm.layout_state.tile(wm.allocator, root_geo.width, root_geo.height, wm.windows.items.len) catch unreachable;
     // TODO handle all windows, not just the first one
     for (tiles) |t, i| {
-        _ = i;
+        const win = wm.windows.items[i];
         _ = c.XMoveResizeWindow(
             wm.display,
-            e.window,
+            win,
             @intCast(c_int, t.x),
             @intCast(c_int, t.y),
             @intCast(c_uint, t.w),
