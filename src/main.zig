@@ -60,6 +60,10 @@ const WindowManager = struct {
 
     windows: std.ArrayList(c.Window),
     focused_window: ?usize = null,
+
+    monitors: []xinerama.ScreenInfo,
+    focused_monitor: usize = 0,
+
     layout_state: ColumnLayout = ColumnLayout{},
 };
 
@@ -73,13 +77,14 @@ pub fn main() !void {
         return error.X11InitFailed;
     };
     defer _ = c.XCloseDisplay(display);
-
     const root = c.DefaultRootWindow(display);
+
     wm = WindowManager{
         .allocator = allocator,
         .display = display,
         .root = root,
         .windows = std.ArrayList(c.Window).init(allocator),
+        .monitors = undefined,
     };
 
     _ = c.XSetErrorHandler(onWMDetected);
@@ -102,9 +107,9 @@ pub fn main() !void {
         std.log.err("Xinerama not activated.", .{});
         return error.XineramaNotActive;
     }
-    const monitor_info = try xinerama.queryScreens(allocator, wm.display);
-    defer allocator.free(monitor_info);
-    for (monitor_info) |info| {
+    const monitors = try xinerama.queryScreens(allocator, wm.display);
+    defer allocator.free(monitors);
+    for (monitors) |info| {
         std.log.info("Monitor {}: {}x{}:{}x{}", .{
             info.screen_number,
             info.x_org,
@@ -113,6 +118,7 @@ pub fn main() !void {
             info.height,
         });
     }
+    wm.monitors = monitors;
 
     _ = c.XSetErrorHandler(onXError);
 
@@ -185,8 +191,11 @@ pub fn main() !void {
 }
 
 fn updateWindowTiles() void {
-    const root_geo = util.getGeometry(wm.display, wm.root);
-    const tiles = wm.layout_state.tile(wm.allocator, root_geo.width, root_geo.height, wm.windows.items.len) catch unreachable;
+    const monitor = wm.monitors[wm.focused_monitor];
+    const width = monitor.width;
+    const height = monitor.height;
+
+    const tiles = wm.layout_state.tile(wm.allocator, width, height, wm.windows.items.len) catch unreachable;
     for (tiles) |t, i| {
         const win = wm.windows.items[i];
         _ = c.XMoveResizeWindow(

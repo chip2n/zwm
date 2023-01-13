@@ -1,7 +1,7 @@
 const c = @import("c.zig");
 const std = @import("std");
 
-const ScreenInfo = struct {
+pub const ScreenInfo = struct {
     screen_number: u32,
     x_org: u16,
     y_org: u16,
