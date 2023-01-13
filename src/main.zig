@@ -3,6 +3,7 @@ const util = @import("util.zig");
 const c = @import("c.zig");
 const input = @import("input.zig");
 const layout = @import("layout.zig");
+const xinerama = @import("xinerama.zig");
 
 const ColumnLayout = layout.ColumnLayout;
 const Event = @import("event.zig").Event;
@@ -95,6 +96,23 @@ pub fn main() !void {
     }
 
     std.log.info("Window manager initialized (root window {})", .{root});
+
+    // Xinerama
+    if (!xinerama.isActive(wm.display)) {
+        std.log.err("Xinerama not activated.", .{});
+        return error.XineramaNotActive;
+    }
+    const monitor_info = try xinerama.queryScreens(allocator, wm.display);
+    defer allocator.free(monitor_info);
+    for (monitor_info) |info| {
+        std.log.info("Monitor {}: {}x{}:{}x{}", .{
+            info.screen_number,
+            info.x_org,
+            info.y_org,
+            info.width,
+            info.height,
+        });
+    }
 
     _ = c.XSetErrorHandler(onXError);
 
