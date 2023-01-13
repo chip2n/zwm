@@ -2,8 +2,51 @@ const std = @import("std");
 const util = @import("util.zig");
 const c = @import("c.zig");
 const input = @import("input.zig");
+const layout = @import("layout.zig");
 
+const ColumnLayout = layout.ColumnLayout;
 const Event = @import("event.zig").Event;
+
+pub const log_level: std.log.Level = .info;
+
+const bindings = .{
+    .{ "M-RET", launchTerminal },
+    .{ "M-a", launchBrowser },
+    .{ "M-c", closeWindow },
+    .{ "M-f", focusWindow },
+    .{ "M-q", exitWM },
+};
+
+fn launchTerminal() !void {
+    try launch("xterm");
+}
+
+fn launchBrowser() !void {
+    try launch("google-chrome-stable");
+}
+
+fn closeWindow() !void {
+    //const win = util.getInputFocus(wm.display);
+    const win = wm.windows.items[0];
+    std.log.info("Closing window {}", .{win});
+
+    _ = c.XDestroyWindow(wm.display, win);
+}
+
+fn focusWindow() !void {
+    const window = wm.windows.items[0];
+    std.log.info("Attempt manual focus for window {}", .{window});
+    _ = c.XSetInputFocus(wm.display, window, c.RevertToParent, c.CurrentTime);
+}
+
+fn exitWM() !void {
+    wm.finished = true;
+}
+
+fn launch(cmd: []const u8) !void {
+    var process = std.ChildProcess.init(&.{cmd}, wm.allocator);
+    try process.spawn();
+}
 
 var wm: WindowManager = undefined;
 
@@ -12,13 +55,16 @@ const WindowManager = struct {
     display: *c.Display,
     root: c.Window,
     wm_detected: bool = false,
-    clients: std.AutoHashMap(c.Window, c.Window),
+    finished: bool = false,
+
+    windows: std.ArrayList(c.Window),
+    focused_window: ?usize = null,
+    layout_state: ColumnLayout = ColumnLayout{},
 };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-
     var allocator = gpa.allocator();
 
     const display = c.XOpenDisplay(null) orelse {
@@ -28,20 +74,18 @@ pub fn main() !void {
     defer _ = c.XCloseDisplay(display);
 
     const root = c.DefaultRootWindow(display);
-
     wm = WindowManager{
         .allocator = allocator,
         .display = display,
         .root = root,
-        .clients = std.AutoHashMap(c.Window, c.Window).init(allocator),
+        .windows = std.ArrayList(c.Window).init(allocator),
     };
 
     _ = c.XSetErrorHandler(onWMDetected);
-
     _ = c.XSelectInput(
         display,
         root,
-        c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask,
+        c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask | c.FocusChangeMask,
     );
     _ = c.XSync(display, 0);
 
@@ -50,35 +94,40 @@ pub fn main() !void {
         return error.X11InitFailed;
     }
 
-    std.log.info("Window manager initialized", .{});
+    std.log.info("Window manager initialized (root window {})", .{root});
 
     _ = c.XSetErrorHandler(onXError);
 
-    { // Handle any existing top-level windows that are already mapped
-        _ = c.XGrabServer(wm.display);
-        defer _ = c.XUngrabServer(wm.display);
-
-        var returned_root: c.Window = undefined;
-        var returned_parent: c.Window = undefined;
-        var top_level_windows: [*c]c.Window = undefined;
-        var num_top_level_windows: c_uint = undefined;
-        try util.check(c.XQueryTree(
-            wm.display,
-            wm.root,
-            &returned_root,
-            &returned_parent,
-            &top_level_windows,
-            &num_top_level_windows,
-        ));
-        std.debug.assert(returned_root == wm.root);
-        var i: usize = 0;
-        while (i < num_top_level_windows) : (i += 1) {
-            try frame_window(top_level_windows[i], true);
-        }
-        _ = c.XFree(top_level_windows);
+    // Grab all bindings in root window
+    inline for (bindings) |binding| {
+        input.grabKey(wm.display, wm.root, binding[0]);
     }
 
-    while (true) {
+    // { // Handle any existing top-level windows that are already mapped
+    //     _ = c.XGrabServer(wm.display);
+    //     defer _ = c.XUngrabServer(wm.display);
+
+    //     var returned_root: c.Window = undefined;
+    //     var returned_parent: c.Window = undefined;
+    //     var top_level_windows: [*c]c.Window = undefined;
+    //     var num_top_level_windows: c_uint = undefined;
+    //     try util.check(c.XQueryTree(
+    //         wm.display,
+    //         wm.root,
+    //         &returned_root,
+    //         &returned_parent,
+    //         &top_level_windows,
+    //         &num_top_level_windows,
+    //     ));
+    //     std.debug.assert(returned_root == wm.root);
+    //     var i: usize = 0;
+    //     while (i < num_top_level_windows) : (i += 1) {
+    //         try frame_window(top_level_windows[i], true);
+    //     }
+    //     _ = c.XFree(top_level_windows);
+    // }
+
+    while (!wm.finished) {
         var e: c.XEvent = undefined;
         _ = c.XNextEvent(display, &e);
 
@@ -86,67 +135,34 @@ pub fn main() !void {
         std.log.debug("Received event: {s}\n{s}", .{ @tagName(ev.data), try ev.toString(allocator) });
 
         switch (ev.data) {
-            .create_notify => |d| onCreateNotify(&d),
+            .create_notify => |d| {
+                std.log.info("Adding window {}", .{d.window});
+                try wm.windows.append(d.window);
+            },
+            .destroy_notify => |d| {
+                std.log.info("Destroying window {}", .{d.window});
+                var i: usize = 0;
+                while (i < wm.windows.items.len) : (i += 1) {
+                    if (wm.windows.items[i] == d.window) {
+                        _ = wm.windows.orderedRemove(i);
+                        break;
+                    }
+                }
+            },
+            .focus_in => |d| {
+                std.log.info("Focusing window: {}", .{d.window});
+            },
+            .focus_out => |d| {
+                std.log.info("Unfocusing window: {}", .{d.window});
+            },
             .configure_request => |d| onConfigureRequest(&d),
-            .configure_notify => |d| onConfigureNotify(&d),
             .map_request => |d| try onMapRequest(&d),
-            .map_notify => |d| onMapNotify(&d),
-            .unmap_notify => |d| try onUnmapNotify(&d),
-            .destroy_notify => |d| onDestroyNotify(&d),
-            .reparent_notify => |d| onReparentNotify(&d),
             .key_press => |d| try onKeyPress(&d),
             else => {},
         }
 
         std.log.debug("------------", .{});
     }
-}
-
-// Newly created windows are always invisible, so there's nothing for us to do.
-fn onCreateNotify(e: *const c.XCreateWindowEvent) void {
-    _ = e;
-}
-
-fn onDestroyNotify(e: *const c.XDestroyWindowEvent) void {
-    _ = e;
-}
-
-fn onReparentNotify(e: *const c.XReparentEvent) void {
-    _ = e;
-}
-
-fn onMapNotify(e: *const c.XMapEvent) void {
-    _ = e;
-}
-
-fn onUnmapNotify(e: *const c.XUnmapEvent) !void {
-    // If we don't manage the window, we'll ignore this event (we receive
-    // UnmapNotify events for frame windows we've destroyed ourselves)
-    const frame = wm.clients.get(e.window) orelse {
-        std.log.info("Ignore UnmapNotify for non-client window {}", .{e.window});
-        return;
-    };
-
-    // Ignore event if it is triggered by reparenting a window that was mapped
-    // before the wm started.
-    if (e.event == wm.root) {
-        std.log.info("Ignore UnmapNotify for reparented pre-existing window {}", .{e.window});
-        return;
-    }
-
-    _ = c.XUnmapWindow(wm.display, frame);
-    _ = c.XReparentWindow(
-        wm.display,
-        e.window,
-        wm.root,
-        0,
-        0,
-    );
-    _ = c.XRemoveFromSaveSet(wm.display, e.window);
-    _ = c.XDestroyWindow(wm.display, frame);
-    _ = wm.clients.remove(e.window);
-
-    std.log.info("Unframed window {} [{}]", .{ e.window, frame });
 }
 
 // Since window is still invisible at this point, we grant configure requests
@@ -161,87 +177,69 @@ fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
         .sibling = e.above,
         .stack_mode = e.detail,
     };
+    _ = c.XConfigureWindow(wm.display, e.window, @intCast(c_uint, e.value_mask), &changes);
 
-    // Resize corresponding frame in the same way
-    if (wm.clients.get(e.window)) |frame| {
-        _ = c.XConfigureWindow(wm.display, frame, @intCast(c_uint, e.value_mask), &changes);
+    const root_geo = util.getGeometry(wm.display, wm.root);
+    // TODO We only add windows to WM when mapping them, so we don't have the latest window here
+    const tiles = wm.layout_state.tile(wm.allocator, root_geo.width, root_geo.height, 1) catch unreachable;
+    // TODO handle all windows, not just the first one
+    for (tiles) |t, i| {
+        _ = i;
+        _ = c.XMoveResizeWindow(
+            wm.display,
+            e.window,
+            @intCast(c_int, t.x),
+            @intCast(c_int, t.y),
+            @intCast(c_uint, t.w),
+            @intCast(c_uint, t.h),
+        );
     }
 
-    _ = c.XConfigureWindow(wm.display, e.window, @intCast(c_uint, e.value_mask), &changes);
-    std.log.info("Resize {} to ({}x{})", .{ e.window, e.width, e.height });
-}
+    // var changes = c.XWindowChanges{
+    //     .x = e.x,
+    //     .y = e.y,
+    //     .width = e.width,
+    //     .height = e.height,
+    //     .border_width = e.border_width,
+    //     .sibling = e.above,
+    //     .stack_mode = e.detail,
+    // };
+    // std.log.info("Configure event: {}x{}:{}x{}", .{ e.x, e.y, e.width, e.height });
 
-fn onConfigureNotify(e: *const c.XConfigureEvent) void {
-    _ = e;
+    // _ = c.XConfigureWindow(wm.display, e.window, @intCast(c_uint, e.value_mask), &changes);
+    // std.log.info("Resize {} to ({}x{})", .{ e.window, e.width, e.height });
+
+    // _ = c.XMoveResizeWindow(wm.display, e.window, 0, 0, 700, 500);
 }
 
 fn onMapRequest(e: *const c.XMapRequestEvent) !void {
-    try frame_window(e.window, false);
-    _ = c.XMapWindow(wm.display, e.window);
-}
-
-fn frame_window(w: c.Window, created_before_wm: bool) !void {
-    const border_width = 3;
-    const border_color = 0xff0000;
-    const bg_color = 0x0000ff;
-
-    var x_window_attrs: c.XWindowAttributes = undefined;
-    try util.check(c.XGetWindowAttributes(wm.display, w, &x_window_attrs));
-
-    // If window was created before wm started, we should frame it only if it is
-    // visible and doesn't set override_redirect
-    if (created_before_wm) {
-        if (x_window_attrs.override_redirect == 1 or x_window_attrs.map_state != c.IsViewable) {
-            return;
-        }
-    }
-
-    const frame = c.XCreateSimpleWindow(
-        wm.display,
-        wm.root,
-        x_window_attrs.x,
-        x_window_attrs.y,
-        @intCast(c_uint, x_window_attrs.width),
-        @intCast(c_uint, x_window_attrs.height),
-        border_width,
-        border_color,
-        bg_color,
-    );
-    _ = c.XSelectInput(
-        wm.display,
-        frame,
-        c.SubstructureRedirectMask | c.SubstructureNotifyMask,
-    );
-    _ = c.XAddToSaveSet(wm.display, w);
-    _ = c.XReparentWindow(
-        wm.display,
-        w,
-        frame,
-        0,
-        0,
-    );
-    _ = c.XMapWindow(wm.display, frame);
-    try wm.clients.put(w, frame);
-
-    // TODO We may need to grab the final keybindings for all windows
     // _ = c.XGrabKey(
     //     wm.display,
     //     c.XKeysymToKeycode(wm.display, c.XK_A),
-    //     c.AnyModifier, // TODO or 0?
-    //     w,
+    //     c.Mod1Mask,
+    //     e.window,
     //     0,
     //     c.GrabModeAsync,
     //     c.GrabModeAsync,
     // );
-
-    std.log.info("Framed window {} [{}]", .{ w, frame });
+    _ = c.XMapWindow(wm.display, e.window);
 }
 
 fn onKeyPress(e: *const c.XKeyEvent) !void {
-    if (input.pressed(wm.display, e, "M-RET")) {
-        var process = std.ChildProcess.init(&.{"xterm"}, wm.allocator);
-        try process.spawn();
+    inline for (bindings) |binding| {
+        if (input.pressed(wm.display, e, binding[0])) {
+            try binding[1]();
+        }
     }
+    // if (input.pressed(wm.display, e, "M-RET")) {
+    //     var process = std.ChildProcess.init(&.{"xterm"}, wm.allocator);
+    //     try process.spawn();
+    // }
+
+    // if (input.pressed(wm.display, e, "M-a")) {
+    //     var process = std.ChildProcess.init(&.{"xfontsel"}, wm.allocator);
+    //     try process.spawn();
+    // }
 }
 
 fn onWMDetected(display: ?*c.Display, e: [*c]c.XErrorEvent) callconv(.C) c_int {

@@ -36,10 +36,33 @@ const KeyBinding = struct {
     keysym: c.KeySym,
 };
 
+// TODO: Add all keys
 const keysym_map = std.ComptimeStringMap(c.KeySym, .{
     .{ "RET", c.XK_Return },
     .{ "a", c.XK_a },
+    .{ "c", c.XK_c },
+    .{ "f", c.XK_f },
+    .{ "q", c.XK_q },
 });
+
+pub fn grabKey(display: *c.Display, grab_window: c.Window, comptime binding: []const u8) void {
+    const b = comptime parseKeyStr(binding) catch |e| {
+        switch (e) {
+            error.InvalidSyntax => @compileError("Invalid key syntax in \"" ++ binding ++ "\"."),
+            error.InvalidModifier => @compileError("Invalid modifier in \"" ++ binding ++ "\"."),
+            error.InvalidKey => @compileError("Invalid key in \"" ++ binding ++ "\"."),
+        }
+    };
+    _ = c.XGrabKey(
+        display,
+        c.XKeysymToKeycode(display, b.keysym),
+        @bitCast(c_uint, b.flags),
+        grab_window,
+        0,
+        c.GrabModeAsync,
+        c.GrabModeAsync,
+    );
+}
 
 pub fn parseKeyStr(key_str: []const u8) error{ InvalidSyntax, InvalidModifier, InvalidKey }!KeyBinding {
     var iter = std.mem.tokenize(u8, key_str, "-");
