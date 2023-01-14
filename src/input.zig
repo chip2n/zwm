@@ -43,6 +43,8 @@ const keysym_map = std.ComptimeStringMap(c.KeySym, .{
     .{ "c", c.XK_c },
     .{ "f", c.XK_f },
     .{ "q", c.XK_q },
+    .{ "1", c.XK_1 },
+    .{ "2", c.XK_2 },
 });
 
 pub fn grabKey(display: *c.Display, grab_window: c.Window, comptime binding: []const u8) void {
