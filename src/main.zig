@@ -106,6 +106,9 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     var allocator = gpa.allocator();
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
     const display = c.XOpenDisplay(null) orelse {
         std.log.err("Unable to open X11 display {s}", .{c.XDisplayName(null)});
         return error.X11InitFailed;
@@ -156,8 +159,7 @@ pub fn main() !void {
                 info.width,
                 info.height,
             });
-
-            wm.monitors[i] = .{ .info = info, .windows = std.ArrayList(usize).init(allocator) };
+            wm.monitors[i] = .{ .info = info, .windows = std.ArrayList(usize).init(arena.allocator()) };
         }
     }
 
