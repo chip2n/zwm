@@ -14,7 +14,6 @@ const bindings = .{
     .{ "M-RET", launchTerminal },
     .{ "M-a", launchBrowser },
     .{ "M-c", closeWindow },
-    .{ "M-f", focusWindow },
     .{ "M-1", focusMonitor0 },
     .{ "M-2", focusMonitor1 },
     .{ "M-S-1", moveToMonitor0 },
@@ -31,17 +30,10 @@ fn launchBrowser() !void {
 }
 
 fn closeWindow() !void {
-    //const win = util.getInputFocus(wm.display);
-    const win = wm.windows.items[0].window;
-    std.log.info("Closing window {}", .{win});
-
-    _ = c.XDestroyWindow(wm.display, win);
-}
-
-fn focusWindow() !void {
-    const window = wm.windows.items[0].window;
-    std.log.info("Attempt manual focus for window {}", .{window});
-    _ = c.XSetInputFocus(wm.display, window, c.RevertToParent, c.CurrentTime);
+    if (wm.focused_window) |win| {
+        std.log.info("Closing window {}", .{win});
+        _ = c.XDestroyWindow(wm.display, win);
+    }
 }
 
 fn focusMonitor0() !void {
@@ -53,15 +45,15 @@ fn focusMonitor1() !void {
 }
 
 fn moveToMonitor0() !void {
-    const win_index = wm.focused_window orelse return;
-    var win = wm.windows.items[win_index];
-    win.monitor = 0;
+    const win = wm.focused_window orelse return;
+    var win_state = wm.windows.getPtr(win) orelse return;
+    win_state.monitor = 0;
 }
 
 fn moveToMonitor1() !void {
-    const win_index = wm.focused_window orelse return;
-    var win = wm.windows.items[win_index];
-    win.monitor = 1;
+    const win = wm.focused_window orelse return;
+    var win_state = wm.windows.getPtr(win) orelse return;
+    win_state.monitor = 1;
 }
 
 fn exitWM() !void {
@@ -82,8 +74,8 @@ const WindowManager = struct {
     wm_detected: bool = false,
     finished: bool = false,
 
-    windows: std.ArrayList(WindowState),
-    focused_window: ?usize = null,
+    windows: std.AutoHashMap(c.Window, WindowState),
+    focused_window: ?c.Window = null,
 
     monitors: []MonitorState,
     focused_monitor: usize = 0,
@@ -98,7 +90,7 @@ const WindowState = struct {
 
 const MonitorState = struct {
     info: xinerama.ScreenInfo,
-    windows: std.ArrayList(usize),
+    windows: std.ArrayList(c.Window),
 };
 
 pub fn main() !void {
@@ -120,7 +112,7 @@ pub fn main() !void {
         .allocator = allocator,
         .display = display,
         .root = root,
-        .windows = std.ArrayList(WindowState).init(allocator),
+        .windows = std.AutoHashMap(c.Window, WindowState).init(allocator),
         .monitors = undefined,
     };
 
@@ -128,7 +120,8 @@ pub fn main() !void {
     _ = c.XSelectInput(
         display,
         root,
-        c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask | c.FocusChangeMask,
+        //c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask | c.FocusChangeMask,
+        c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask,
     );
     _ = c.XSync(display, 0);
 
@@ -159,7 +152,7 @@ pub fn main() !void {
                 info.width,
                 info.height,
             });
-            wm.monitors[i] = .{ .info = info, .windows = std.ArrayList(usize).init(arena.allocator()) };
+            wm.monitors[i] = .{ .info = info, .windows = std.ArrayList(c.Window).init(arena.allocator()) };
         }
     }
 
@@ -204,37 +197,33 @@ pub fn main() !void {
         switch (ev.data) {
             .create_notify => |d| {
                 std.log.info("Adding window {}", .{d.window});
-                try wm.windows.append(.{ .window = d.window, .monitor = wm.focused_monitor });
-                try wm.monitors[wm.focused_monitor].windows.append(wm.windows.items.len - 1);
+                try wm.windows.put(d.window, .{ .window = d.window, .monitor = wm.focused_monitor });
+                try wm.monitors[wm.focused_monitor].windows.append(d.window);
             },
             .destroy_notify => |d| {
                 std.log.info("Destroying window {}", .{d.window});
-                { // Remove from window list
-                    var i: usize = 0;
-                    while (i < wm.windows.items.len) : (i += 1) {
-                        const win_state = wm.windows.items[i];
-                        if (win_state.window == d.window) {
-                            _ = wm.windows.orderedRemove(i);
 
-                            // Remove from monitors window list
-                            var monitor = &wm.monitors[win_state.monitor];
-                            const win_index = std.mem.indexOfScalar(usize, monitor.windows.items, i);
-                            if (win_index) |w| {
-                                _ = monitor.windows.orderedRemove(w);
-                            }
+                const win_state = wm.windows.get(d.window) orelse unreachable;
+                var was_removed = wm.windows.remove(d.window);
+                std.debug.assert(was_removed);
 
-                            break;
-                        }
-                    }
-                }
+                var monitor_windows = &wm.monitors[win_state.monitor].windows;
+                var index = std.mem.indexOfScalar(c.Window, monitor_windows.items, d.window) orelse unreachable;
+                _ = monitor_windows.orderedRemove(index);
 
                 updateWindowTiles();
             },
             .focus_in => |d| {
                 std.log.info("Focusing window: {}", .{d.window});
+                //_ = c.XSetInputFocus(wm.display, d.window, c.RevertToPointerRoot, c.CurrentTime);
+                wm.focused_window = d.window;
             },
             .focus_out => |d| {
                 std.log.info("Unfocusing window: {}", .{d.window});
+            },
+            .enter_notify => |d| {
+                std.log.info("ENTER {}", .{d.window});
+                _ = c.XSetInputFocus(wm.display, d.window, c.RevertToPointerRoot, c.CurrentTime);
             },
             .configure_request => |d| onConfigureRequest(&d),
             .map_request => |d| try onMapRequest(&d),
@@ -250,10 +239,10 @@ const WindowIterator = struct {
     monitor: usize,
     index: usize,
 
-    fn next(self: *@This()) ?WindowState {
+    fn next(self: *@This()) ?*WindowState {
         const monitor = wm.monitors[self.monitor];
         if (self.index >= monitor.windows.items.len) return null;
-        const win = wm.windows.items[monitor.windows.items[self.index]];
+        const win = wm.windows.getPtr(monitor.windows.items[self.index]);
         self.index += 1;
         return win;
     }
@@ -314,6 +303,11 @@ fn onMapRequest(e: *const c.XMapRequestEvent) !void {
     //     c.GrabModeAsync,
     // );
     _ = c.XMapWindow(wm.display, e.window);
+    _ = c.XSelectInput(
+        wm.display,
+        e.window,
+        c.EnterWindowMask | c.FocusChangeMask,
+    );
 }
 
 fn onKeyPress(e: *const c.XKeyEvent) !void {
