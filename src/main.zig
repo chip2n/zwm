@@ -217,7 +217,7 @@ pub fn main() !void {
                             _ = wm.windows.orderedRemove(i);
 
                             // Remove from monitors window list
-                            var monitor = wm.monitors[win_state.monitor];
+                            var monitor = &wm.monitors[win_state.monitor];
                             const win_index = std.mem.indexOfScalar(usize, monitor.windows.items, i);
                             if (win_index) |w| {
                                 _ = monitor.windows.orderedRemove(w);
