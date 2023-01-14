@@ -149,7 +149,7 @@ pub fn main() !void {
         const monitors = try xinerama.queryScreens(allocator, wm.display);
         defer allocator.free(monitors);
 
-        wm.monitors = try allocator.alloc(MonitorState, monitors.len);
+        wm.monitors = try arena.allocator().alloc(MonitorState, monitors.len);
 
         for (monitors) |info, i| {
             std.log.info("Monitor {}: {}x{}:{}x{}", .{
