@@ -199,7 +199,7 @@ pub fn main() !void {
         _ = c.XNextEvent(display, &e);
 
         var ev = Event.fromNative(e);
-        std.log.debug("Received event: {s}\n{s}", .{ @tagName(ev.data), try ev.toString(allocator) });
+        std.log.debug("Received event: {s}\n{?}", .{ @tagName(ev.data), ev });
 
         switch (ev.data) {
             .create_notify => |d| {

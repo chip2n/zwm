@@ -126,8 +126,4 @@ pub const Event = struct {
             },
         };
     }
-
-    pub fn toString(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
-        return std.fmt.allocPrint(allocator, "{?}", .{self});
-    }
 };
