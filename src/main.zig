@@ -8,7 +8,7 @@ const xinerama = @import("xinerama.zig");
 const ColumnLayout = layout.ColumnLayout;
 const Event = @import("event.zig").Event;
 
-pub const log_level: std.log.Level = .info;
+pub const log_level: std.log.Level = .debug;
 
 const bindings = .{
     .{ "M-RET", launchTerminal },
@@ -51,6 +51,8 @@ fn focusMonitor1() !void {
 fn focusNext() !void {
     const mon = &wm.monitors[wm.focused_monitor];
     const curr_win = mon.focused_window orelse return;
+    std.log.info("Focus next (curr {})", .{curr_win});
+
     const index = std.mem.indexOfScalar(c.Window, mon.windows.items, curr_win) orelse unreachable;
     const new_win = mon.windows.items[@mod(index + 1, mon.windows.items.len)];
     focus(new_win);
@@ -59,6 +61,8 @@ fn focusNext() !void {
 fn focusPrev() !void {
     const mon = &wm.monitors[wm.focused_monitor];
     const curr_win = mon.focused_window orelse return;
+    std.log.info("Focus prev (curr {})", .{curr_win});
+
     const index = std.mem.indexOfScalar(c.Window, mon.windows.items, curr_win) orelse unreachable;
     const new_win = mon.windows.items[@intCast(usize, @mod(@intCast(isize, index) - 1, @intCast(isize, mon.windows.items.len)))];
     focus(new_win);
@@ -214,6 +218,7 @@ pub fn main() !void {
 
         var ev = Event.fromNative(e);
         std.log.debug("Received event: {s}\n{?}", .{ @tagName(ev.data), ev });
+        defer std.log.info("------------", .{});
 
         switch (ev.data) {
             .create_notify => |d| {
@@ -231,36 +236,48 @@ pub fn main() !void {
                 var monitor_windows = &wm.monitors[win_state.monitor].windows;
                 var index = std.mem.indexOfScalar(c.Window, monitor_windows.items, d.window) orelse unreachable;
                 _ = monitor_windows.orderedRemove(index);
-
                 updateWindowTiles();
             },
             .focus_in => |d| {
                 std.log.info("Focusing window: {}", .{d.window});
+                if (d.mode == c.NotifyGrab) continue;
                 if (findMonitorForWindow(d.window)) |mon| {
-                    wm.monitors[mon].focused_window = d.window;
-                    //wm.focused_monitor = mon;
+                    if (d.window != wm.monitors[mon].focused_window) {
+                        if (wm.monitors[mon].focused_window) |w| {
+                            unfocus(w);
+                        }
+                        wm.monitors[mon].focused_window = d.window;
+                        std.log.info("Monitor {} is now focusing {?}", .{ mon, wm.monitors[mon].focused_window });
+                        focus(d.window);
+                        //wm.focused_monitor = mon;
+                    }
                 }
             },
             .focus_out => |d| {
                 std.log.info("Unfocusing window: {}", .{d.window});
+                //unfocus(d.window);
             },
             .enter_notify => |d| {
                 std.log.info("ENTER {}", .{d.window});
-                focus(d.window);
+                //focus(d.window);
             },
             .configure_request => |d| onConfigureRequest(&d),
             .map_request => |d| try onMapRequest(&d),
             .key_press => |d| try onKeyPress(&d),
             else => {},
         }
-
-        std.log.debug("------------", .{});
     }
 }
 
 fn focus(win: c.Window) void {
     std.log.info("Setting focus: {}", .{win});
+    _ = c.XSetWindowBorder(wm.display, win, 0xff0000);
     _ = c.XSetInputFocus(wm.display, win, c.RevertToPointerRoot, c.CurrentTime);
+}
+
+fn unfocus(win: c.Window) void {
+    _ = c.XSetWindowBorder(wm.display, win, 0xffffff);
+    //_ = c.XSetInputFocus(wm.display, wm.root, c.RevertToPointerRoot, c.CurrentTime);
 }
 
 fn findMonitorForWindow(win: c.Window) ?usize {
@@ -331,21 +348,14 @@ fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
 }
 
 fn onMapRequest(e: *const c.XMapRequestEvent) !void {
-    // _ = c.XGrabKey(
-    //     wm.display,
-    //     c.XKeysymToKeycode(wm.display, c.XK_A),
-    //     c.Mod1Mask,
-    //     e.window,
-    //     0,
-    //     c.GrabModeAsync,
-    //     c.GrabModeAsync,
-    // );
+    std.log.info("map request {}", .{e.window});
     _ = c.XMapWindow(wm.display, e.window);
     _ = c.XSelectInput(
         wm.display,
         e.window,
         c.EnterWindowMask | c.FocusChangeMask,
     );
+    focus(e.window);
 }
 
 fn onKeyPress(e: *const c.XKeyEvent) !void {
