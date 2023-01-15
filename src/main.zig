@@ -32,46 +32,48 @@ fn launchBrowser() !void {
 }
 
 fn closeWindow() !void {
-    if (wm.focused_window) |win| {
+    if (wm.monitors[wm.focused_monitor].focused_window) |win| {
         std.log.info("Closing window {}", .{win});
         _ = c.XDestroyWindow(wm.display, win);
     }
 }
 
 fn focusMonitor0() !void {
+    std.log.info("Focusing monitor 0", .{});
     wm.focused_monitor = 0;
 }
 
 fn focusMonitor1() !void {
+    std.log.info("Focusing monitor 1", .{});
     wm.focused_monitor = 1;
 }
 
 fn focusNext() !void {
-    const curr_win = wm.focused_window orelse return;
-    const windows = &wm.monitors[wm.focused_monitor].windows;
-    const index = std.mem.indexOfScalar(c.Window, windows.items, curr_win) orelse unreachable;
-    const new_win = windows.items[@mod(index + 1, windows.items.len)];
-    //wm.focused_window = windows.items[@mod(index + 1, windows.items.len - 1)];
+    const mon = &wm.monitors[wm.focused_monitor];
+    const curr_win = mon.focused_window orelse return;
+    const index = std.mem.indexOfScalar(c.Window, mon.windows.items, curr_win) orelse unreachable;
+    const new_win = mon.windows.items[@mod(index + 1, mon.windows.items.len)];
     focus(new_win);
 }
 
 fn focusPrev() !void {
-    const curr_win = wm.focused_window orelse return;
-    const windows = &wm.monitors[wm.focused_monitor].windows;
-    const index = std.mem.indexOfScalar(c.Window, windows.items, curr_win) orelse unreachable;
-    const new_win = windows.items[@intCast(usize, @mod(@intCast(isize, index) - 1, @intCast(isize, windows.items.len)))];
-    //wm.focused_window = windows.items[@mod(index - 1, windows.items.len - 1)];
+    const mon = &wm.monitors[wm.focused_monitor];
+    const curr_win = mon.focused_window orelse return;
+    const index = std.mem.indexOfScalar(c.Window, mon.windows.items, curr_win) orelse unreachable;
+    const new_win = mon.windows.items[@intCast(usize, @mod(@intCast(isize, index) - 1, @intCast(isize, mon.windows.items.len)))];
     focus(new_win);
 }
 
 fn moveToMonitor0() !void {
-    const win = wm.focused_window orelse return;
+    const mon = &wm.monitors[wm.focused_monitor];
+    const win = mon.focused_window orelse return;
     var win_state = wm.windows.getPtr(win) orelse return;
     win_state.monitor = 0;
 }
 
 fn moveToMonitor1() !void {
-    const win = wm.focused_window orelse return;
+    const mon = &wm.monitors[wm.focused_monitor];
+    const win = mon.focused_window orelse return;
     var win_state = wm.windows.getPtr(win) orelse return;
     win_state.monitor = 1;
 }
@@ -95,7 +97,6 @@ const WindowManager = struct {
     finished: bool = false,
 
     windows: std.AutoHashMap(c.Window, WindowState),
-    focused_window: ?c.Window = null,
 
     monitors: []MonitorState,
     focused_monitor: usize = 0,
@@ -111,6 +112,7 @@ const WindowState = struct {
 const MonitorState = struct {
     info: xinerama.ScreenInfo,
     windows: std.ArrayList(c.Window),
+    focused_window: ?c.Window = null,
 };
 
 pub fn main() !void {
@@ -234,8 +236,10 @@ pub fn main() !void {
             },
             .focus_in => |d| {
                 std.log.info("Focusing window: {}", .{d.window});
-                //_ = c.XSetInputFocus(wm.display, d.window, c.RevertToPointerRoot, c.CurrentTime);
-                wm.focused_window = d.window;
+                if (findMonitorForWindow(d.window)) |mon| {
+                    wm.monitors[mon].focused_window = d.window;
+                    //wm.focused_monitor = mon;
+                }
             },
             .focus_out => |d| {
                 std.log.info("Unfocusing window: {}", .{d.window});
@@ -257,6 +261,16 @@ pub fn main() !void {
 fn focus(win: c.Window) void {
     std.log.info("Setting focus: {}", .{win});
     _ = c.XSetInputFocus(wm.display, win, c.RevertToPointerRoot, c.CurrentTime);
+}
+
+fn findMonitorForWindow(win: c.Window) ?usize {
+    var i: usize = 0;
+    while (i < wm.monitors.len) : (i += 1) {
+        const mon = wm.monitors[i];
+        const index = std.mem.indexOfScalar(c.Window, mon.windows.items, win);
+        if (index != null) return i;
+    }
+    return null;
 }
 
 const WindowIterator = struct {
