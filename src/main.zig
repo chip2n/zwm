@@ -234,8 +234,15 @@ pub fn main() !void {
                 std.debug.assert(was_removed);
 
                 var monitor_windows = &wm.monitors[win_state.monitor].windows;
-                var index = std.mem.indexOfScalar(c.Window, monitor_windows.items, d.window) orelse unreachable;
+                const index = std.mem.indexOfScalar(c.Window, monitor_windows.items, d.window) orelse unreachable;
                 _ = monitor_windows.orderedRemove(index);
+
+                // Focus next window
+                if (monitor_windows.items.len > 0) {
+                    const new_index = @min(index, monitor_windows.items.len - 1);
+                    focus(monitor_windows.items[new_index]);
+                }
+
                 updateWindowTiles();
             },
             .focus_in => |d| {
