@@ -14,6 +14,8 @@ const bindings = .{
     .{ "M-RET", launchTerminal },
     .{ "M-a", launchBrowser },
     .{ "M-c", closeWindow },
+    .{ "M-n", focusNext },
+    .{ "M-e", focusPrev },
     .{ "M-1", focusMonitor0 },
     .{ "M-2", focusMonitor1 },
     .{ "M-S-1", moveToMonitor0 },
@@ -42,6 +44,24 @@ fn focusMonitor0() !void {
 
 fn focusMonitor1() !void {
     wm.focused_monitor = 1;
+}
+
+fn focusNext() !void {
+    const curr_win = wm.focused_window orelse return;
+    const windows = &wm.monitors[wm.focused_monitor].windows;
+    const index = std.mem.indexOfScalar(c.Window, windows.items, curr_win) orelse unreachable;
+    const new_win = windows.items[@mod(index + 1, windows.items.len)];
+    //wm.focused_window = windows.items[@mod(index + 1, windows.items.len - 1)];
+    focus(new_win);
+}
+
+fn focusPrev() !void {
+    const curr_win = wm.focused_window orelse return;
+    const windows = &wm.monitors[wm.focused_monitor].windows;
+    const index = std.mem.indexOfScalar(c.Window, windows.items, curr_win) orelse unreachable;
+    const new_win = windows.items[@intCast(usize, @mod(@intCast(isize, index) - 1, @intCast(isize, windows.items.len)))];
+    //wm.focused_window = windows.items[@mod(index - 1, windows.items.len - 1)];
+    focus(new_win);
 }
 
 fn moveToMonitor0() !void {
@@ -112,7 +132,7 @@ pub fn main() !void {
         .allocator = allocator,
         .display = display,
         .root = root,
-        .windows = std.AutoHashMap(c.Window, WindowState).init(allocator),
+        .windows = std.AutoHashMap(c.Window, WindowState).init(arena.allocator()),
         .monitors = undefined,
     };
 
@@ -120,7 +140,6 @@ pub fn main() !void {
     _ = c.XSelectInput(
         display,
         root,
-        //c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask | c.FocusChangeMask,
         c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask,
     );
     _ = c.XSync(display, 0);
@@ -223,7 +242,7 @@ pub fn main() !void {
             },
             .enter_notify => |d| {
                 std.log.info("ENTER {}", .{d.window});
-                _ = c.XSetInputFocus(wm.display, d.window, c.RevertToPointerRoot, c.CurrentTime);
+                focus(d.window);
             },
             .configure_request => |d| onConfigureRequest(&d),
             .map_request => |d| try onMapRequest(&d),
@@ -233,6 +252,11 @@ pub fn main() !void {
 
         std.log.debug("------------", .{});
     }
+}
+
+fn focus(win: c.Window) void {
+    std.log.info("Setting focus: {}", .{win});
+    _ = c.XSetInputFocus(wm.display, win, c.RevertToPointerRoot, c.CurrentTime);
 }
 
 const WindowIterator = struct {

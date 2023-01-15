@@ -41,6 +41,8 @@ const keysym_map = std.ComptimeStringMap(c.KeySym, .{
     .{ "RET", c.XK_Return },
     .{ "a", c.XK_a },
     .{ "c", c.XK_c },
+    .{ "n", c.XK_n },
+    .{ "e", c.XK_e },
     .{ "f", c.XK_f },
     .{ "q", c.XK_q },
     .{ "1", c.XK_1 },
