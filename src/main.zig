@@ -238,7 +238,8 @@ pub fn main() !void {
                 _ = monitor_windows.orderedRemove(index);
 
                 // Focus next window
-                if (monitor_windows.items.len > 0) {
+                const was_focused = wm.monitors[win_state.monitor].focused_window == d.window;
+                if (was_focused and monitor_windows.items.len > 0) {
                     const new_index = @min(index, monitor_windows.items.len - 1);
                     focus(monitor_windows.items[new_index]);
                 }
