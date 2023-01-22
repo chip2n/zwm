@@ -25,7 +25,7 @@ pub fn createWindow(display: *c.Display, root: c.Window, start_x: u32, end_x: u3
     _ = start_x;
     _ = end_x;
     const screen_num = c.DefaultScreen(display);
-    const win = c.XCreateSimpleWindow(
+    const win = x11.createSimpleWindow(
         display,
         root,
         0,
@@ -38,7 +38,6 @@ pub fn createWindow(display: *c.Display, root: c.Window, start_x: u32, end_x: u3
     );
 
     const atom_strut = x11.internAtom(display, "_NET_WM_STRUT", false);
-    _ = atom_strut;
 
     // Set window type (dock)
     // _ = c.XChangeProperty(
@@ -54,8 +53,9 @@ pub fn createWindow(display: *c.Display, root: c.Window, start_x: u32, end_x: u3
 
     // TODO WM needs to watch this property and update accordingly
     // Set strut properties
-    //const strut: [12]u32 = .{ 0, 0, 50, 0, 0, 0, 0, 0, 0, width, 0, 0 };
-    //wm.replaceCardinalProperty(win, .net_wm_strut, &strut);
+    const width = 200;
+    const strut: [12]u64 = .{ 0, 0, 50, 0, 0, 0, 0, 0, 0, width, 0, 0 };
+    x11.replaceCardinalProperty(u64, display, win, atom_strut, &strut);
 
     // const strut: [12]c_long = .{ 0, 0, 50, 0, 0, 0, 0, 0, 0, width, 0, 0 };
     // _ = c.XChangeProperty(
@@ -79,8 +79,8 @@ pub fn createWindow(display: *c.Display, root: c.Window, start_x: u32, end_x: u3
     //     12,
     // );
 
-    _ = c.XMapWindow(display, win);
-    _ = c.XFlush(display);
+    x11.mapWindow(display, win);
+    x11.flush(display);
     return win;
 }
 

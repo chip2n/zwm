@@ -37,6 +37,10 @@ pub fn nextEvent(display: *Display) Event {
     return e;
 }
 
+pub fn flush(display: *Display) void {
+    _ = c.XFlush(display);
+}
+
 // * Windows
 
 // #define CWX		(1<<0)
@@ -85,6 +89,20 @@ pub const ConfigureWindowFlags = packed struct(c_uint) {
 
     _padding: u25 = 0,
 };
+
+pub fn createSimpleWindow(
+    display: *Display,
+    parent: Window,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    border_width: u32,
+    border: u64,
+    background: u64,
+) Window {
+    return c.XCreateSimpleWindow(display, parent, x, y, width, height, border_width, border, background);
+}
 
 pub fn destroyWindow(display: *Display, w: Window) void {
     _ = c.XDestroyWindow(display, w);
@@ -227,8 +245,12 @@ pub fn replaceCardinalProperty(
     atom: Atom,
     data: []const T,
 ) void {
-    const format = @bitSizeOf(T);
-    std.debug.assert(format == 8 or format == 16 or format == 32);
+    const format = switch (@bitSizeOf(T)) {
+        8 => 8,
+        16 => 16,
+        64 => 32,
+        else => @compileError("Unsupported data type " ++ @typeName(T)),
+    };
 
     _ = c.XChangeProperty(
         display,
@@ -237,7 +259,7 @@ pub fn replaceCardinalProperty(
         c.XA_CARDINAL,
         format,
         c.PropModeReplace,
-        @ptrCast([*c]const u8, &data),
+        @ptrCast([*c]const u8, data.ptr),
         @intCast(c_int, data.len),
     );
 }
