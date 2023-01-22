@@ -38,6 +38,7 @@ pub fn createWindow(display: *c.Display, root: c.Window, start_x: u32, end_x: u3
     );
 
     const atom_strut = x11.internAtom(display, "_NET_WM_STRUT", false);
+    const atom_strut_partial = x11.internAtom(display, "_NET_WM_STRUT_PARTIAL", false);
 
     // Set window type (dock)
     // _ = c.XChangeProperty(
@@ -55,7 +56,8 @@ pub fn createWindow(display: *c.Display, root: c.Window, start_x: u32, end_x: u3
     // Set strut properties
     const width = 200;
     const strut: [12]u64 = .{ 0, 0, 50, 0, 0, 0, 0, 0, 0, width, 0, 0 };
-    x11.replaceCardinalProperty(u64, display, win, atom_strut, &strut);
+    x11.replaceCardinalProperty(u64, display, win, atom_strut, strut[0..4]);
+    x11.replaceCardinalProperty(u64, display, win, atom_strut_partial, &strut);
 
     // const strut: [12]c_long = .{ 0, 0, 50, 0, 0, 0, 0, 0, 0, width, 0, 0 };
     // _ = c.XChangeProperty(
