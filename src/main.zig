@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("c.zig");
-const x11 = @import("raw.zig");
+const x11 = @import("x11.zig");
 
 const input = @import("input.zig");
 const layout = @import("layout.zig");

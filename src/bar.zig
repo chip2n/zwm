@@ -1,5 +1,5 @@
 const c = @import("c.zig");
-const x11 = @import("raw.zig");
+const x11 = @import("x11.zig");
 
 const bar_height = 30;
 

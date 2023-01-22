@@ -1,5 +1,5 @@
 const std = @import("std");
-const x11 = @import("raw.zig");
+const x11 = @import("x11.zig");
 
 /// The golden ratio is used to get a good default tile size (main window
 /// occupies more space than secondary windows)
