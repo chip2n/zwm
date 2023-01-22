@@ -1,9 +1,11 @@
 const std = @import("std");
-const util = @import("util.zig");
 const c = @import("c.zig");
+const x11 = @import("raw.zig");
+
 const input = @import("input.zig");
 const layout = @import("layout.zig");
 const xinerama = @import("xinerama.zig");
+const bar = @import("bar.zig");
 
 const ColumnLayout = layout.ColumnLayout;
 const Event = @import("event.zig").Event;
@@ -16,11 +18,28 @@ const bindings = .{
     .{ "M-c", closeWindow },
     .{ "M-n", focusNext },
     .{ "M-e", focusPrev },
+    .{ "M-b", enableBar },
     .{ "M-1", focusMonitor0 },
     .{ "M-2", focusMonitor1 },
     .{ "M-S-1", moveToMonitor0 },
     .{ "M-S-2", moveToMonitor1 },
     .{ "M-q", exitWM },
+};
+
+const AtomType = enum {
+    net_wm_window_type,
+    net_wm_window_type_dock,
+    net_wm_strut,
+    net_wm_strut_partial,
+
+    fn name(t: AtomType) [:0]const u8 {
+        return switch (t) {
+            .net_wm_window_type => "_NET_WM_WINDOW_TYPE",
+            .net_wm_window_type_dock => "_NET_WM_WINDOW_TYPE_DOCK",
+            .net_wm_strut => "_NET_WM_STRUT",
+            .net_wm_strut_partial => "_NET_WM_STRUT_PARTIAL",
+        };
+    }
 };
 
 fn launchTerminal() !void {
@@ -31,10 +50,21 @@ fn launchBrowser() !void {
     try launch("google-chrome-stable");
 }
 
+fn enableBar() !void {
+    // TODO size
+    const win = try bar.createWindow(wm.display, wm.root, 0, 100);
+
+    const gc = try bar.createGC(wm.display, win);
+    try bar.loadFont(wm.display, gc, "fixed");
+    //try bar.loadFont(wm.display, gc, "*-iosevka-*-*-*-*-*-*-*-*-*-*-*-*");
+
+    bar.drawBar(wm.display, win, gc);
+}
+
 fn closeWindow() !void {
     if (wm.monitors[wm.focused_monitor].focused_window) |win| {
         std.log.info("Closing window {}", .{win});
-        _ = c.XDestroyWindow(wm.display, win);
+        x11.destroyWindow(wm.display, win);
     }
 }
 
@@ -127,12 +157,10 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const display = c.XOpenDisplay(null) orelse {
-        std.log.err("Unable to open X11 display {s}", .{c.XDisplayName(null)});
-        return error.X11InitFailed;
-    };
-    defer _ = c.XCloseDisplay(display);
-    const root = c.DefaultRootWindow(display);
+    const display = try x11.openDisplay(null);
+    defer x11.closeDisplay(display);
+
+    const root = x11.defaultRootWindow(display);
 
     wm = WindowManager{
         .allocator = allocator,
@@ -142,16 +170,20 @@ pub fn main() !void {
         .monitors = undefined,
     };
 
-    _ = c.XSetErrorHandler(onWMDetected);
-    _ = c.XSelectInput(
+    x11.setErrorHandler(onWMDetected);
+    x11.selectInput(
         display,
         root,
-        c.SubstructureRedirectMask | c.SubstructureNotifyMask | c.KeyPressMask,
+        .{
+            .substructure_redirect = true,
+            .substructure_notify = true,
+            .key_press = true,
+        },
     );
-    _ = c.XSync(display, 0);
+    x11.sync(display, false);
 
     if (wm.wm_detected) {
-        std.log.err("Detected another window manager on display {s}", .{c.XDisplayString(display)});
+        std.log.err("Detected another window manager on display {s}", .{x11.displayString(display)});
         return error.X11InitFailed;
     }
 
@@ -181,7 +213,7 @@ pub fn main() !void {
         }
     }
 
-    _ = c.XSetErrorHandler(onXError);
+    x11.setErrorHandler(onXError);
 
     // Grab all bindings in root window
     inline for (bindings) |binding| {
@@ -213,8 +245,7 @@ pub fn main() !void {
     // }
 
     while (!wm.finished) {
-        var e: c.XEvent = undefined;
-        _ = c.XNextEvent(display, &e);
+        const e = x11.nextEvent(display);
 
         var ev = Event.fromNative(e);
         std.log.debug("Received event: {s}\n{?}", .{ @tagName(ev.data), ev });
@@ -279,12 +310,16 @@ pub fn main() !void {
 
 fn focus(win: c.Window) void {
     std.log.info("Setting focus: {}", .{win});
-    _ = c.XSetWindowBorder(wm.display, win, 0xff0000);
-    _ = c.XSetInputFocus(wm.display, win, c.RevertToPointerRoot, c.CurrentTime);
+    x11.setWindowBorder(wm.display, win, 0xff0000);
+
+    var changes: x11.WindowChanges = undefined;
+    changes.border_width = 1;
+    x11.configureWindow(wm.display, win, .{ .border_width = true }, &changes);
+    x11.setInputFocus(wm.display, win, .revert_to_pointer_root, x11.CurrentTime);
 }
 
 fn unfocus(win: c.Window) void {
-    _ = c.XSetWindowBorder(wm.display, win, 0xffffff);
+    x11.setWindowBorder(wm.display, win, 0xffffff);
     //_ = c.XSetInputFocus(wm.display, wm.root, c.RevertToPointerRoot, c.CurrentTime);
 }
 
@@ -317,6 +352,11 @@ fn monitorWindowIterator(monitor: usize) WindowIterator {
 
 fn updateWindowTiles() void {
     for (wm.monitors) |monitor, monitor_index| {
+        // TODO
+        // There may be a dock on this monitor; we need to find it and figure out
+        // how much space we have left
+        //monitor.windows.items
+
         const width = monitor.info.width;
         const height = monitor.info.height;
 
@@ -326,13 +366,13 @@ fn updateWindowTiles() void {
         for (tiles) |t| {
             const win = iter.next().?;
             if (win.monitor != monitor_index) continue;
-            _ = c.XMoveResizeWindow(
+            x11.moveResizeWindow(
                 wm.display,
                 win.window,
-                @intCast(c_int, monitor.info.x_org + t.x),
-                @intCast(c_int, monitor.info.y_org + t.y),
-                @intCast(c_uint, t.w),
-                @intCast(c_uint, t.h),
+                @intCast(i32, monitor.info.x_org + t.x),
+                @intCast(i32, monitor.info.y_org + t.y),
+                t.w,
+                t.h,
             );
         }
     }
@@ -341,7 +381,7 @@ fn updateWindowTiles() void {
 // Since window is still invisible at this point, we grant configure requests
 // without modification
 fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
-    var changes = c.XWindowChanges{
+    var changes = x11.WindowChanges{
         .x = e.x,
         .y = e.y,
         .width = e.width,
@@ -350,19 +390,16 @@ fn onConfigureRequest(e: *const c.XConfigureRequestEvent) void {
         .sibling = e.above,
         .stack_mode = e.detail,
     };
-    _ = c.XConfigureWindow(wm.display, e.window, @intCast(c_uint, e.value_mask), &changes);
+    const flags = @bitCast(x11.ConfigureWindowFlags, @intCast(c_uint, e.value_mask));
+    x11.configureWindow(wm.display, e.window, flags, &changes);
 
     updateWindowTiles();
 }
 
 fn onMapRequest(e: *const c.XMapRequestEvent) !void {
     std.log.info("map request {}", .{e.window});
-    _ = c.XMapWindow(wm.display, e.window);
-    _ = c.XSelectInput(
-        wm.display,
-        e.window,
-        c.EnterWindowMask | c.FocusChangeMask,
-    );
+    x11.mapWindow(wm.display, e.window);
+    x11.selectInput(wm.display, e.window, .{ .enter_window = true, .focus_change = true });
     focus(e.window);
 }
 
@@ -383,19 +420,16 @@ fn onKeyPress(e: *const c.XKeyEvent) !void {
     // }
 }
 
-fn onWMDetected(display: ?*c.Display, e: [*c]c.XErrorEvent) callconv(.C) c_int {
+fn onWMDetected(display: *x11.Display, e: *x11.ErrorEvent) void {
     _ = display;
-    std.debug.assert(e.*.error_code == c.BadAccess);
+    std.debug.assert(e.error_code == c.BadAccess);
     wm.wm_detected = true;
-    return 0;
 }
 
-fn onXError(display: ?*c.Display, e: [*c]c.XErrorEvent) callconv(.C) c_int {
-    _ = display;
-    var text: [1024]u8 = undefined;
-    _ = c.XGetErrorText(wm.display, e.*.error_code, &text, text.len);
-    std.log.err("X11 error: {s}", .{std.mem.sliceTo(&text, 0)});
-    return 0;
+fn onXError(display: *x11.Display, e: *x11.ErrorEvent) void {
+    var buf: [1024]u8 = undefined;
+    const text = x11.getErrorText(display, e.error_code, &buf);
+    std.log.err("X11 error: {s}", .{text});
 }
 
 test {

@@ -13,3 +13,19 @@ Xephyr -br -ac -noreset -screen 800x600 :1
 # Launch wm on the new display
 DISPLAY=:1 zig-out/bin/zwm
 #+end_src
+
+** Tasks
+
+*** TODO Send WM_TAKE_FOCUS
+
+https://tronche.com/gui/x/icccm/sec-4.html#s-4.1.7
+
+#+begin_src zig
+const atom = c.XInternAtom(wm.display, "WM_TAKE_FOCUS", 0);
+var ex: c.XEvent = undefined;
+ex.type = c.ClientMessage;
+ex.xclient.window = d.window;
+ex.xclient.message_type = atom;
+ex.xclient.format = 32;
+_ = c.XSendEvent(wm.display, d.window, 0, c.NoEventMask, &ex);
+#+end_src
