@@ -134,7 +134,8 @@ pub fn setWindowBorder(display: *Display, w: Window, color: u64) void {
 
 // * Atoms
 
-pub const Atom = enum(c.Atom) {
+pub const Atom = c.Atom;
+pub const BuiltinAtom = enum(Atom) {
     primary = 1,
     secondary = 2,
     arc = 3,
@@ -223,7 +224,7 @@ pub fn replaceCardinalProperty(
     comptime T: type,
     display: *Display,
     win: Window,
-    atom: c.Atom,
+    atom: Atom,
     data: []const T,
 ) void {
     const format = @bitSizeOf(T);
@@ -241,7 +242,7 @@ pub fn replaceCardinalProperty(
     );
 }
 
-pub fn internAtom(display: *Display, atom_name: [:0]const u8, only_if_exists: bool) c.Atom {
+pub fn internAtom(display: *Display, atom_name: [:0]const u8, only_if_exists: bool) Atom {
     return c.XInternAtom(display, atom_name, @boolToInt(only_if_exists));
 }
 
